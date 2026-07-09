@@ -1,16 +1,60 @@
 import os
 import sys
+import subprocess
+import json
+# Lista de librerías externas que requiere tu proyecto
+LIBRERIAS_REQUERIDAS = {
+    "psycopg2": "psycopg2-binary",
+    "colorama": "colorama",
+    "tkinter": "tkinter",
+    "platform" : "platform"
+}
+
+def verificar_e_instalar_librerIAS():
+    """Revisa si las librerías están instaladas; si no, las instala automáticamente"""
+    for import_name, pip_name in LIBRERIAS_REQUERIDAS.items():
+        try:
+            __import__(import_name)
+        except ImportError:
+            print(f"[!] La librería '{import_name}' no está instalada.")
+            print(f"[+] Instalando '{pip_name}' automáticamente en segundo plano...")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
+                print(f"[✔] '{pip_name}' instalada con éxito.\n")
+            except Exception as e:
+                print(f"[❌] Error crítico al intentar instalar {pip_name}: {e}")
+                sys.exit(1)
+
+verificar_e_instalar_librerIAS()
+
+
 from datetime import datetime
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from PIL import ImageTk, Image, ImageGrab
 import platform
-import subprocess
 from pathlib import Path
+from colorama import init, Fore, Style
+
+init(autoreset=True)
  
-# Nombre del archivo de configuración para recordar la ruta
-ARCHIVO_CONFIG = "config_captura.txt"
- 
+# -------------------------------------------------------------------------
+# CARGA DE CONFIGURACIÓN SEGURA
+# -------------------------------------------------------------------------
+CONFIG_FILE = "config.json"
+
+def cargar_configuracion():
+    """Carga el JSON. Si no existe, devuelve un diccionario vacío para crearlo después."""
+    if not os.path.exists(CONFIG_FILE):
+        return {}
+        
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(Fore.RED + f"[❌] Error al cargar la configuración: {e}")
+        return {}
+
  
 class AplicacionCaptura:
  
@@ -104,20 +148,18 @@ class AplicacionCaptura:
  
     def obtener_ruta_inicial(self):
         """
-        Intenta leer la última ruta guardada. Si es la primera vez (no existe config o la ruta fue borrada),
-        le pide de manera obligatoria al usuario que seleccione su carpeta por primera vez.
+        Intenta leer la ruta guardada en el JSON. Si es la primera vez,
+        le pide al usuario que seleccione su carpeta.
         """
-        # 1. Intentar leer la ruta guardada previamente en el config
-        if os.path.exists(ARCHIVO_CONFIG):
-            try:
-                with open(ARCHIVO_CONFIG, "r", encoding="utf-8") as f:
-                    ruta_guardada = f.read().strip()
-                    if os.path.exists(ruta_guardada):
-                        return os.path.abspath(ruta_guardada)
-            except Exception:
-                pass  # Si falla la lectura, procederemos a preguntar
+        # 1. Intentar leer la ruta guardada previamente en el config usando la nueva estructura
+        datos = cargar_configuracion()
+        ruta_guardada = datos.get("Ruta_Guardada", {}).get("ruta", "")
+        
+        # Validamos que la ruta exista físicamente en la computadora
+        if ruta_guardada and os.path.exists(ruta_guardada):
+            return os.path.abspath(ruta_guardada)
  
-        # 2. Si no hay archivo de configuración, pedir la carpeta por primera vez
+        # 2. Si no hay archivo de configuración o la ruta fue borrada, pedir la carpeta
         messagebox.showinfo(
             "Configuración Inicial",
             "¡Bienvenido a Capturador Pro!\n\n"
@@ -135,7 +177,7 @@ class AplicacionCaptura:
             self.guardar_ruta_en_config(ruta_abs)
             return ruta_abs
         else:
-            # Si el usuario cancela en este paso inicial, cerramos el programa de forma segura
+            # Si cancela en este paso inicial, cerramos el programa de forma segura
             messagebox.showwarning(
                 "Configuración Requerida",
                 "Debes elegir una carpeta para poder utilizar la aplicación."
@@ -144,12 +186,23 @@ class AplicacionCaptura:
             sys.exit()
  
     def guardar_ruta_en_config(self, ruta):
-        """Guarda la ruta seleccionada en el archivo de texto de configuración."""
+        """Guarda la ruta seleccionada en el archivo JSON manteniendo la estructura segura."""
         try:
-            with open(ARCHIVO_CONFIG, "w", encoding="utf-8") as f:
-                f.write(ruta)
+            datos = cargar_configuracion()
+            
+            # Aseguramos que la estructura exista
+            if "Ruta_Guardada" not in datos or not isinstance(datos["Ruta_Guardada"], dict):
+                datos["Ruta_Guardada"] = {}
+                
+            # Guardamos la nueva ruta
+            datos["Ruta_Guardada"]["ruta"] = ruta
+            
+            # Escribimos el JSON
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(datos, f, indent=4, ensure_ascii=False)
+                
         except Exception as e:
-            print(f"No se pudo guardar la configuración: {e}")
+            print(Fore.RED + f"[❌] No se pudo guardar la configuración: {e}")
  
     def preparar_carpeta(self):
         # Asegurarse de que la carpeta de guardado exista antes de capturar
