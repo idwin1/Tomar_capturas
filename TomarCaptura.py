@@ -239,6 +239,7 @@ class AplicacionCaptura:
             ruta = self.preparar_carpeta()
             captura = ImageGrab.grab()
             captura.save(ruta)
+            captura.close() # <-- NUEVO: Destruye la imagen de la RAM
             messagebox.showinfo("Éxito", f"Captura completa guardada en:\n{ruta}")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
@@ -301,21 +302,31 @@ class AplicacionCaptura:
         if x2 - x1 > 5 and y2 - y1 > 5:
             try:
                 ruta = self.preparar_carpeta()
-                imagen_recortada = self.pantalla_completa_img.crop(
-                    (x1, y1, x2, y2)
-                )
+                imagen_recortada = self.pantalla_completa_img.crop((x1, y1, x2, y2))
                 imagen_recortada.save(ruta)
-                messagebox.showinfo(
-                    "Éxito", f"Recorte guardado con éxito en:\n{ruta}"
-                )
+                imagen_recortada.close() # <-- NUEVO: Limpia el recorte
+                
+                messagebox.showinfo("Éxito", f"Recorte guardado con éxito en:\n{ruta}")
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo recortar: {e}")
- 
+        
+        # <-- NUEVO: Siempre limpia la captura de pantalla de fondo
+        if self.pantalla_completa_img:
+            self.pantalla_completa_img.close()
+            self.pantalla_completa_img = None
+            
         self.root.deiconify()
  
     def cancelar_recorte(self):
         self.ventana_recorte.destroy()
+        
+        # <-- NUEVO: Libera la RAM si el usuario canceló a la mitad
+        if self.pantalla_completa_img:
+            self.pantalla_completa_img.close()
+            self.pantalla_completa_img = None
+            
         self.root.deiconify()
+ 
    
     def abrir_ubicacion(self, ruta_str):
         ruta = Path(ruta_str).resolve()
