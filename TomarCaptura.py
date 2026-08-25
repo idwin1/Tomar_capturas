@@ -233,6 +233,8 @@ class AplicacionCaptura:
             captura = ImageGrab.grab()
             captura.save(ruta)
             captura.close()
+
+            self.copiar_al_portapapeles(ruta)
             # En lugar de messagebox, actualizamos la vista previa silenciosamente
             self.actualizar_vista_previa(ruta)
         except Exception as e:
@@ -280,6 +282,9 @@ class AplicacionCaptura:
                 imagen_recortada = self.pantalla_completa_img.crop((x1, y1, x2, y2))
                 imagen_recortada.save(ruta)
                 imagen_recortada.close()
+
+                self.copiar_al_portapapeles(ruta)
+
                 self.actualizar_vista_previa(ruta)
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo recortar: {e}")
@@ -315,6 +320,22 @@ class AplicacionCaptura:
         else:
             carpeta = str(ruta.parent) if ruta.is_file() else str(ruta)
             subprocess.Popen(["open", carpeta])
+
+    def copiar_al_portapapeles(self, ruta_imagen):
+        """Copia la imagen guardada al portapapeles de Windows sin librerías extra."""
+        if platform.system() == "Windows":
+            try:
+                comando = [
+                    "powershell",
+                    "-command",
+                    f"Add-Type -AssemblyName System.Windows.Forms; [Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile('{ruta_imagen}'))"
+                ]
+                # 0x08000000 es CREATE_NO_WINDOW, evita que parpadee la consola
+                subprocess.run(comando, creationflags=0x08000000)
+            except Exception as e:
+                print(f"[❌] Error al copiar al portapapeles: {e}")
+
+    
  
 if __name__ == "__main__":
     try:
