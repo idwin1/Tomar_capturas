@@ -63,7 +63,7 @@ class AplicacionCaptura:
     def __init__(self, ventana_principal):
         self.root = ventana_principal
         self.root.title("Capturador Pro")
-        self.root.geometry("320x450")
+        self.root.geometry("320x480")
         #self.root.resizable(False, False)
         
         # Tema oscuro por defecto
@@ -123,6 +123,26 @@ class AplicacionCaptura:
         
         btn_abrir = ctk.CTkButton(self.frame_sec, text="📂 Abrir Directorio", fg_color="#3a3a3a", hover_color="#4a4a4a", command=lambda: self.abrir_ubicacion(self.ruta_guardado))
         btn_abrir.grid(row=0, column=1, padx=5, pady=5, sticky="nsew", ipady=4)
+
+        # ---------------------------------------------------------
+        # NUEVO: SWITCH DEL PORTAPAPELES
+        # ---------------------------------------------------------
+        # 1. Leer el estado guardado (por defecto en True)
+        datos_config = cargar_configuracion()
+        copiar_auto = datos_config.get("Opciones", {}).get("copiar_portapapeles", True)
+        
+        self.var_portapapeles = ctk.BooleanVar(value=copiar_auto)
+        
+        # 2. Crear el Switch en la interfaz
+        self.switch_portapapeles = ctk.CTkSwitch(
+            self.frame_sec, 
+            text="Copiar al portapapeles", 
+            variable=self.var_portapapeles,
+            command=self.guardar_config_switch, # Llama a esta función al hacer clic
+            font=("Arial", 12)
+        )
+        # Lo colocamos en la fila 1 (debajo de los botones) ocupando ambas columnas
+        self.switch_portapapeles.grid(row=1, column=0, columnspan=2, pady=(10, 5), padx=5, sticky="w")
 
         # --- FILA 4: PANEL DE PREVISUALIZACIÓN ---
         self.frame_preview = ctk.CTkFrame(self.root, fg_color="#1a1a1a", corner_radius=8, border_width=1, border_color="#333333")
@@ -243,7 +263,9 @@ class AplicacionCaptura:
                 captura.save(ruta)
                 captura.close()
 
-            self.copiar_al_portapapeles(ruta)
+            # Solo copiar si el switch está activado
+            if self.var_portapapeles.get():
+                self.copiar_al_portapapeles(ruta)
             self.actualizar_vista_previa(ruta)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
@@ -318,7 +340,9 @@ class AplicacionCaptura:
                 imagen_recortada.save(ruta)
                 imagen_recortada.close()
 
-                self.copiar_al_portapapeles(ruta)
+                # Solo copiar si el switch está activado
+                if self.var_portapapeles.get():
+                    self.copiar_al_portapapeles(ruta)
                 self.actualizar_vista_previa(ruta)
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo recortar: {e}")
@@ -368,6 +392,21 @@ class AplicacionCaptura:
                 subprocess.run(comando, creationflags=0x08000000)
             except Exception as e:
                 print(f"[❌] Error al copiar al portapapeles: {e}")
+                
+    def guardar_config_switch(self):
+        """Guarda el estado del switch en el archivo config.json"""
+        try:
+            datos = cargar_configuracion()
+            if "Opciones" not in datos or not isinstance(datos["Opciones"], dict):
+                datos["Opciones"] = {}
+                
+            # Guardamos True o False dependiendo de si el switch está activado
+            datos["Opciones"]["copiar_portapapeles"] = self.var_portapapeles.get()
+            
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(datos, f, indent=4, ensure_ascii=False)
+        except Exception as e:
+            print(f"[❌] Error al guardar config del switch: {e}")
 
     
  
