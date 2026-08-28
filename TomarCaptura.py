@@ -7,7 +7,8 @@ import json
 LIBRERIAS_REQUERIDAS = {
     "colorama": "colorama",
     "customtkinter": "customtkinter",
-    "PIL": "pillow"
+    "PIL": "pillow",
+    "mss": "mss"
 }
 
 def verificar_e_instalar_librerias():
@@ -32,6 +33,7 @@ import tkinter as tk
 from tkinter import messagebox, filedialog
 import customtkinter as ctk
 from PIL import Image, ImageGrab, ImageOps
+import mss
 import platform
 from pathlib import Path
 from colorama import init, Fore, Style
@@ -230,12 +232,18 @@ class AplicacionCaptura:
     def _hacer_captura_completa(self):
         try:
             ruta = self.preparar_carpeta()
-            captura = ImageGrab.grab()
-            captura.save(ruta)
-            captura.close()
+            
+            with mss.mss() as sct:
+                # monitor[0] representa la suma de todas las pantallas conectadas
+                monitor = sct.monitors[0]
+                sct_img = sct.grab(monitor)
+                
+                # Convertimos el formato nativo de mss a un objeto Image de PIL
+                captura = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+                captura.save(ruta)
+                captura.close()
 
             self.copiar_al_portapapeles(ruta)
-            # En lugar de messagebox, actualizamos la vista previa silenciosamente
             self.actualizar_vista_previa(ruta)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar: {e}")
@@ -246,11 +254,27 @@ class AplicacionCaptura:
         self.root.after(300, self._crear_capa_recorte)
  
     def _crear_capa_recorte(self):
-        self.pantalla_completa_img = ImageGrab.grab()
+        # 1. Tomar captura de todas las pantallas en segundo plano con mss
+        with mss.mss() as sct:
+            monitor = sct.monitors[0]
+            sct_img = sct.grab(monitor)
+            self.pantalla_completa_img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+
+        # 2. Configurar la ventana transparente de recorte
         self.ventana_recorte = tk.Toplevel()
-        self.ventana_recorte.attributes("-fullscreen", True)
         self.ventana_recorte.attributes("-alpha", 0.3)
+        self.ventana_recorte.overrideredirect(True) # Oculta la barra de título y bordes de Windows
         self.ventana_recorte.config(cursor="cross")
+ 
+        # 3. Calcular el tamaño del "Escritorio Virtual" (todas las pantallas juntas)
+        # x e y detectan si tienes un monitor a la izquierda o arriba (coordenadas negativas)
+        x = self.root.winfo_vrootx()
+        y = self.root.winfo_vrooty()
+        w = self.root.winfo_vrootwidth()
+        h = self.root.winfo_vrootheight()
+        
+        # Expandir la ventana sobre todas las coordenadas detectadas
+        self.ventana_recorte.geometry(f"{w}x{h}+{x}+{y}")
  
         self.canvas = tk.Canvas(self.ventana_recorte, cursor="cross", bg="grey")
         self.canvas.pack(fill="both", expand=True)
@@ -271,20 +295,30 @@ class AplicacionCaptura:
  
     def al_soltar_clic(self, event):
         fin_x, fin_y = event.x, event.y
+        
+        # 1. Obtener dimensiones del lienzo (Tkinter) y de la imagen real (mss)
+        tk_w = self.canvas.winfo_width()
+        tk_h = self.canvas.winfo_height()
+        img_w, img_h = self.pantalla_completa_img.size
+        
+        # 2. Convertir coordenadas de Tkinter a coordenadas reales de la imagen usando porcentajes
+        x1 = int((min(self.inicio_x, fin_x) / tk_w) * img_w)
+        y1 = int((min(self.inicio_y, fin_y) / tk_h) * img_h)
+        x2 = int((max(self.inicio_x, fin_x) / tk_w) * img_w)
+        y2 = int((max(self.inicio_y, fin_y) / tk_h) * img_h)
+        
         self.ventana_recorte.destroy()
- 
-        x1, y1 = min(self.inicio_x, fin_x), min(self.inicio_y, fin_y)
-        x2, y2 = max(self.inicio_x, fin_x), max(self.inicio_y, fin_y)
  
         if x2 - x1 > 5 and y2 - y1 > 5:
             try:
                 ruta = self.preparar_carpeta()
+                
+                # 3. Recortar usando las coordenadas perfectamente ajustadas
                 imagen_recortada = self.pantalla_completa_img.crop((x1, y1, x2, y2))
                 imagen_recortada.save(ruta)
                 imagen_recortada.close()
 
                 self.copiar_al_portapapeles(ruta)
-
                 self.actualizar_vista_previa(ruta)
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo recortar: {e}")
@@ -340,7 +374,7 @@ class AplicacionCaptura:
 if __name__ == "__main__":
     try:
         import ctypes
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except Exception:
         pass
  
