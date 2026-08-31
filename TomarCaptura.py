@@ -78,6 +78,11 @@ class AplicacionCaptura:
         self.inicio_y = None
         self.cuadrado_seleccion = None
         self.pantalla_completa_img = None
+
+        # Historial de capturas
+        self.historial_rutas = []
+        self.indice_actual = -1 # -1 significa que no hay capturas aún
+        
  
         # ---------------------------------------------------------------------
         # INTERFAZ DE USUARIO (GRID LAYOUT MODERNO)
@@ -144,30 +149,44 @@ class AplicacionCaptura:
         # Lo colocamos en la fila 1 (debajo de los botones) ocupando ambas columnas
         self.switch_portapapeles.grid(row=1, column=0, columnspan=2, pady=(10, 5), padx=5, sticky="w")
 
-        # --- FILA 4: PANEL DE PREVISUALIZACIÓN ---
+        # --- FILA 4: PANEL DE PREVISUALIZACIÓN (CARRUSEL) ---
         self.frame_preview = ctk.CTkFrame(self.root, fg_color="#1a1a1a", corner_radius=8, border_width=1, border_color="#333333")
         self.frame_preview.pack(pady=(15, 10), padx=20, fill="both", expand=True)
         
-        # 1. Agrupamos el texto estático y el nombre del archivo en la misma línea superior
+        # 1. Cabecera del panel
         self.frame_textos = ctk.CTkFrame(self.frame_preview, fg_color="transparent")
         self.frame_textos.pack(fill="x", padx=10, pady=(5, 0))
         
-        ctk.CTkLabel(self.frame_textos, text="Última captura guardada: ", font=("Arial", 11), text_color="#aaaaaa").pack(side="left")
+        self.lbl_estado = ctk.CTkLabel(self.frame_textos, text="Esperando capturas...", font=("Arial", 11, "italic"), text_color="#aaaaaa")
+        self.lbl_estado.pack(side="left")
         
-        self.lbl_filename = ctk.CTkLabel(self.frame_textos, text="Esperando captura...", font=("Arial", 11, "italic"), text_color="#888888")
-        self.lbl_filename.pack(side="left")
+        self.lbl_filename = ctk.CTkLabel(self.frame_textos, text="", font=("Arial", 11, "bold"), text_color="#ffffff")
+        self.lbl_filename.pack(side="right")
         
-        # 2. Contenedor interno para la miniatura y el botón
+        # 2. Contenedor central (Flecha <-  Imagen -> Flecha)
         self.preview_inner = ctk.CTkFrame(self.frame_preview, fg_color="transparent")
-        self.preview_inner.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        self.preview_inner.pack(fill="both", expand=True, padx=5, pady=(10, 5))
+        self.preview_inner.columnconfigure(1, weight=1) # La imagen toma el centro
         
-        # Miniatura centrada
-        self.lbl_thumb = ctk.CTkLabel(self.preview_inner, text="🖼️", font=("Segoe UI Emoji", 30), text_color="#555555", width=140, height=80, fg_color="#2b2b2b", corner_radius=6)
-        self.lbl_thumb.pack(side="top", pady=(5, 10))
+        # Botón Izquierda
+        self.btn_izq = ctk.CTkButton(self.preview_inner, text="◄", width=30, height=80, fg_color="#2b2b2b", hover_color="#3a3a3a", state="disabled", command=self.mostrar_anterior)
+        self.btn_izq.grid(row=0, column=0, padx=(0, 5))
         
-        # Botón abajo ocupando el ancho
-        self.btn_open_img = ctk.CTkButton(self.preview_inner, text="🔍 Abrir Imagen", fg_color="#1f538d", state="disabled")
+        # Botón Central (Es la imagen en sí misma)
+        # Usamos un botón en lugar de un Label para detectar el clic fácilmente
+        self.btn_thumb = ctk.CTkButton(self.preview_inner, text="🖼️\nNo hay imágenes", font=("Segoe UI Emoji", 20), fg_color="#2b2b2b", hover_color="#3a3a3a", corner_radius=6, state="disabled", command=self.copiar_imagen_actual)
+        self.btn_thumb.grid(row=0, column=1, sticky="nsew")
+        
+        # Botón Derecha
+        self.btn_der = ctk.CTkButton(self.preview_inner, text="►", width=30, height=80, fg_color="#2b2b2b", hover_color="#3a3a3a", state="disabled", command=self.mostrar_siguiente)
+        self.btn_der.grid(row=0, column=2, padx=(5, 0))
+        
+        # 3. Botón para abrir la carpeta abajo (Opcional, pero útil)
+        self.btn_open_img = ctk.CTkButton(self.frame_preview, text="🔍 Abrir Imagen Original", fg_color="#1f538d", height=28, state="disabled", command=self.abrir_imagen_actual)
+        self.btn_open_img.pack(fill="x", padx=10, pady=(0, 10))
         self.btn_open_img.pack(side="bottom", fill="x")  
+        # Al terminar de dibujar la interfaz, cargamos el historial
+        self.cargar_historial_carpeta()
  
     # -------------------------------------------------------------------------
     # FUNCIONES LÓGICAS
@@ -217,31 +236,62 @@ class AplicacionCaptura:
             self.guardar_ruta_en_config(self.ruta_guardado)
             self.lbl_ruta.configure(text=f"📁 {Path(self.ruta_guardado).name}")
 
-
-    def actualizar_vista_previa(self, ruta_imagen):
-        """Genera la miniatura y actualiza el panel inferior con la nueva captura"""
-        try:
-            img = Image.open(ruta_imagen)
+    def cargar_historial_carpeta(self):
+        """Lee la carpeta de guardado y carga los nombres de los archivos en memoria (súper ligero)"""
+        if not os.path.exists(self.ruta_guardado):
+            return
             
-            # Recorta y ajusta la imagen para que llene perfectamente el espacio de 140x80
-            img_recortada = ImageOps.fit(img, (140, 80), Image.Resampling.LANCZOS)
+        # Busca todos los archivos .png y los ordena por fecha (el más nuevo al final)
+        archivos = sorted(Path(self.ruta_guardado).glob("*.png"), key=os.path.getmtime)
+        
+        # Guardamos solo el texto de la ruta, lo cual no consume casi nada de RAM
+        self.historial_rutas = [str(ruta) for ruta in archivos]
+        
+        if self.historial_rutas:
+            self.indice_actual = len(self.historial_rutas) - 1
+            # Importante: pasamos prevent_append=True para no duplicar en el historial
+            self.actualizar_vista_previa(prevent_append=True)
+
+
+    def actualizar_vista_previa(self, ruta_imagen=None, prevent_append=False):
+        """Añade una imagen al historial y/o actualiza la vista con el índice actual"""
+        
+        # Si recibimos una ruta nueva y NO estamos solo iniciando, la añadimos al final
+        if ruta_imagen and not prevent_append:
+            self.historial_rutas.append(ruta_imagen)
+            self.indice_actual = len(self.historial_rutas) - 1
+
+        if not self.historial_rutas or self.indice_actual < 0:
+            return
+
+        ruta_mostrar = self.historial_rutas[self.indice_actual]
+        total_imgs = len(self.historial_rutas)
+
+        try:
+            img = Image.open(ruta_mostrar)
+            resample_metodo = getattr(Image.Resampling, 'LANCZOS', Image.BILINEAR)
+            img_recortada = ImageOps.fit(img, (140, 80), resample_metodo)
+            
             ctk_img = ctk.CTkImage(light_image=img_recortada, dark_image=img_recortada, size=(140, 80))
             
-            # Actualizar labels
-            self.lbl_thumb.configure(image=ctk_img, text="")
-            nombre_archivo = Path(ruta_imagen).name
+            # --- SOLUCIÓN A LA FUGA DE MEMORIA ---
+            img.close() # Liberamos la imagen original de la RAM inmediatamente
             
-            # Recortar nombre si es muy largo para que no desborde la interfaz
-            if len(nombre_archivo) > 22:
-                nombre_archivo = nombre_archivo[:19] + "..."
+            self.btn_thumb.configure(image=ctk_img, text="", state="normal")
+            
+            nombre_archivo = Path(ruta_mostrar).name
+            if len(nombre_archivo) > 20:
+                nombre_archivo = nombre_archivo[:17] + "..."
                 
-            self.lbl_filename.configure(text=f"📄 {nombre_archivo}", font=("Arial", 11, "normal"), text_color="#ffffff")
+            self.lbl_estado.configure(text=f"Imagen {self.indice_actual + 1} de {total_imgs}")
+            self.lbl_filename.configure(text=nombre_archivo)
             
-            # Habilitar botón de acción rápida
-            self.btn_open_img.configure(state="normal", command=lambda: self.abrir_ubicacion(ruta_imagen))
+            self.btn_izq.configure(state="normal" if self.indice_actual > 0 else "disabled")
+            self.btn_der.configure(state="normal" if self.indice_actual < total_imgs - 1 else "disabled")
+            self.btn_open_img.configure(state="normal")
+            
         except Exception as e:
-            messagebox.showerror("Error", f"Fallo al generar miniatura: {e}")
-
+            print(f"Error menor al cargar miniatura: {e}")
     # -------------------------------------------------------------------------
     # MÉTODOS DE CAPTURA
     # -------------------------------------------------------------------------
@@ -407,6 +457,33 @@ class AplicacionCaptura:
                 json.dump(datos, f, indent=4, ensure_ascii=False)
         except Exception as e:
             print(f"[❌] Error al guardar config del switch: {e}")
+
+
+    def mostrar_anterior(self):
+        if self.indice_actual > 0:
+            self.indice_actual -= 1
+            self.actualizar_vista_previa()
+
+    def mostrar_siguiente(self):
+        if self.indice_actual < len(self.historial_rutas) - 1:
+            self.indice_actual += 1
+            self.actualizar_vista_previa()
+
+    def copiar_imagen_actual(self):
+        """Se ejecuta al hacer clic sobre la miniatura"""
+        if self.indice_actual >= 0 and self.indice_actual < len(self.historial_rutas):
+            ruta = self.historial_rutas[self.indice_actual]
+            self.copiar_al_portapapeles(ruta)
+            
+            # Un pequeño feedback visual temporal
+            texto_original = self.lbl_estado.cget("text")
+            self.lbl_estado.configure(text="¡Copiado al portapapeles! ✓", text_color="#00ff00")
+            # Restaurar texto después de 1.5 segundos
+            self.root.after(1500, lambda: self.lbl_estado.configure(text=texto_original, text_color="#aaaaaa"))
+
+    def abrir_imagen_actual(self):
+        if self.indice_actual >= 0:
+            self.abrir_ubicacion(self.historial_rutas[self.indice_actual])
 
     
  
